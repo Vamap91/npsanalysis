@@ -645,6 +645,13 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file:
     try:
+        # Leitura do arquivo
+        with st.spinner("Carregando arquivo..."):
+            if uploaded_file.name.endswith(".csv"):
+                df = pd.read_csv(uploaded_file, encoding="utf-8")
+            else:
+                df = pd.read_excel(uploaded_file, header=1)
+
         # Verificação e correção de problemas no CSV
         df, problemas = detectar_problemas_csv(df)
         if problemas:
