@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import openai
+from openai import OpenAI
 from sklearn.cluster import KMeans
 from sklearn.metrics import pairwise_distances_argmin_min
 import io
@@ -12,7 +12,7 @@ st.title("📊 Análise Inteligente de Comentários NPS - CarGlass")
 
 # Configuração da API OpenAI
 try:
-    openai.api_key = st.secrets["OPENAI_API_KEY"]
+    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 except:
     st.error("🔑 Chave da API OpenAI não encontrada. Verifique o arquivo .streamlit/secrets.toml")
     st.stop()
@@ -36,11 +36,14 @@ def gerar_embeddings(textos):
         # Limita o tamanho dos textos para evitar problemas com a API
         textos_limitados = [str(texto)[:8000] if len(str(texto)) > 8000 else str(texto) for texto in textos]
         
-        response = openai.Embedding.create(
+        # Nova sintaxe da OpenAI API v1.0+
+        response = client.embeddings.create(
             input=textos_limitados,
             model="text-embedding-ada-002"
         )
-        return [d["embedding"] for d in response["data"]]
+        
+        return [embedding.embedding for embedding in response.data]
+        
     except Exception as e:
         st.error(f"Erro ao gerar embeddings: {str(e)}")
         return None
@@ -61,8 +64,12 @@ def sugerir_motivos_por_cluster(df_filtrado, n_clusters=8):
         )
         df_valido = df_valido[mask_validos]
         
+        if len(df_valido) < 2:
+            st.error("❌ Número insuficiente de comentários válidos para análise.")
+            return None
+        
         if len(df_valido) < n_clusters:
-            st.warning(f"Número insuficiente de comentários válidos ({len(df_valido)}). Reduzindo clusters para {len(df_valido)//2}")
+            st.warning(f"Número insuficiente de comentários válidos ({len(df_valido)}). Reduzindo clusters para {max(2, len(df_valido)//2)}")
             n_clusters = max(2, len(df_valido)//2)
         
         textos = df_valido["Comentario"].astype(str).tolist()
@@ -79,30 +86,40 @@ def sugerir_motivos_por_cluster(df_filtrado, n_clusters=8):
             kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
             labels = kmeans.fit_predict(embeddings)
         
-        df_valido["Cluster"] = labels
+        df_valido = df_valido.copy()  # Evita SettingWithCopyWarning
+        df_valido.loc[:, "Cluster"] = labels
         
         # Encontra comentários representativos
         representantes_idx, _ = pairwise_distances_argmin_min(kmeans.cluster_centers_, embeddings)
         
         motivos = []
         for i, idx in enumerate(representantes_idx):
-            comentario_repr = df_valido.iloc[idx]["Comentario"]
-            classificacao = df_valido.iloc[idx]["Classificacao_NPS"]
-            
-            # Cria sugestão de motivo mais concisa
-            comentario_str = str(comentario_repr)
-            if len(comentario_str) > 120:
-                sugestao = comentario_str[:117] + "..."
-            else:
-                sugestao = comentario_str
-            
-            motivos.append({
-                "Cluster": f"Grupo {i+1}",
-                "Classificacao_NPS": classificacao,
-                "Comentário Representativo": sugestao,
-                "Quantidade de Comentários": len(df_valido[df_valido["Cluster"] == i])
-            })
+            try:
+                linha = df_valido.iloc[idx]
+                comentario_repr = linha["Comentario"]
+                classificacao = linha["Classificacao_NPS"]
+                
+                # Cria sugestão de motivo mais concisa
+                comentario_str = str(comentario_repr)
+                if len(comentario_str) > 120:
+                    sugestao = comentario_str[:117] + "..."
+                else:
+                    sugestao = comentario_str
+                
+                motivos.append({
+                    "Cluster": f"Grupo {i+1}",
+                    "Classificacao_NPS": classificacao,
+                    "Comentário Representativo": sugestao,
+                    "Quantidade de Comentários": len(df_valido[df_valido["Cluster"] == i])
+                })
+            except Exception as e:
+                st.warning(f"Erro ao processar cluster {i}: {str(e)}")
+                continue
         
+        if not motivos:
+            st.error("❌ Não foi possível gerar motivos representativos.")
+            return None
+            
         return pd.DataFrame(motivos).sort_values("Cluster")
     
     except Exception as e:
