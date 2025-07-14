@@ -49,10 +49,17 @@ def sugerir_motivos_por_cluster(df_filtrado, n_clusters=8):
     """Analisa os comentários e sugere novos motivos baseados em clustering"""
     try:
         # Filtra comentários válidos
-        df_valido = df_filtrado[
-            (df_filtrado["Comentario"].notna()) & 
-            (df_filtrado["Comentario"].astype(str).str.len() > 10)
-        ].copy()
+        df_valido = df_filtrado.copy()
+        df_valido = df_valido.dropna(subset=["Comentario"])
+        
+        # Converte comentários para string e filtra válidos
+        df_valido["Comentario"] = df_valido["Comentario"].astype(str)
+        mask_validos = (
+            (df_valido["Comentario"] != '') & 
+            (df_valido["Comentario"] != 'nan') &
+            (df_valido["Comentario"].str.len() > 10)
+        )
+        df_valido = df_valido[mask_validos]
         
         if len(df_valido) < n_clusters:
             st.warning(f"Número insuficiente de comentários válidos ({len(df_valido)}). Reduzindo clusters para {len(df_valido)//2}")
@@ -83,10 +90,11 @@ def sugerir_motivos_por_cluster(df_filtrado, n_clusters=8):
             classificacao = df_valido.iloc[idx]["Classificacao_NPS"]
             
             # Cria sugestão de motivo mais concisa
-            if len(str(comentario_repr)) > 120:
-                sugestao = str(comentario_repr)[:117] + "..."
+            comentario_str = str(comentario_repr)
+            if len(comentario_str) > 120:
+                sugestao = comentario_str[:117] + "..."
             else:
-                sugestao = str(comentario_repr)
+                sugestao = comentario_str
             
             motivos.append({
                 "Cluster": f"Grupo {i+1}",
@@ -107,7 +115,9 @@ def limpar_dados(df):
     colunas_texto = ["Comentario", "Motivo_Selecionado", "Tipo_Questao"]
     for col in colunas_texto:
         if col in df.columns:
-            df[col] = df[col].astype(str).replace('nan', '')
+            df[col] = df[col].astype(str)
+            df[col] = df[col].replace('nan', '')
+            df[col] = df[col].replace('<NA>', '')
     
     # Limpa e converte a coluna de nota
     if "Nota" in df.columns:
@@ -164,14 +174,45 @@ if uploaded_file:
         df = df[colunas_essenciais]
         
         # Limpeza dos dados
-        df = limpar_dados(df)
+        try:
+            df = limpar_dados(df)
+        except Exception as e:
+            st.error(f"Erro na limpeza dos dados: {str(e)}")
+            st.info("Tentando continuar com dados básicos...")
+            # Limpeza mínima em caso de erro
+            if "Nota" in df.columns:
+                df["Nota"] = pd.to_numeric(df["Nota"], errors="coerce")
+                df = df.dropna(subset=["Nota"])
+            if "Comentario" in df.columns:
+                df["Comentario"] = df["Comentario"].astype(str)
         
         # Remove linhas sem comentários
         df = df.dropna(subset=["Comentario"])
-        df = df[df["Comentario"].astype(str).str.len() > 0]
+        df = df[df["Comentario"].astype(str) != '']
+        df = df[df["Comentario"].astype(str) != 'nan']
+        
+        # Filtra comentários com tamanho mínimo
+        mask_comentarios_validos = df["Comentario"].astype(str).str.len() > 5
+        df = df[mask_comentarios_validos]
         
         # Adiciona classificação NPS
-        df["Classificacao_NPS"] = df["Nota"].apply(classificar_nps)
+        try:
+            df["Classificacao_NPS"] = df["Nota"].apply(classificar_nps)
+        except Exception as e:
+            st.error(f"Erro ao classificar NPS: {str(e)}")
+            # Fallback: classificação manual
+            df["Classificacao_NPS"] = "Não classificado"
+            for idx, row in df.iterrows():
+                try:
+                    nota = float(row["Nota"])
+                    if nota >= 9:
+                        df.at[idx, "Classificacao_NPS"] = "Promotor"
+                    elif nota >= 7:
+                        df.at[idx, "Classificacao_NPS"] = "Neutro"
+                    else:
+                        df.at[idx, "Classificacao_NPS"] = "Detrator"
+                except:
+                    df.at[idx, "Classificacao_NPS"] = "Não classificado"
 
         # Exibe estatísticas básicas
         st.success(f"✅ Arquivo carregado com sucesso! {len(df)} registros válidos encontrados.")
