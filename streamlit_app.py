@@ -12,9 +12,25 @@ st.title("📊 Análise Inteligente de Comentários NPS - CarGlass")
 
 # Configuração da API OpenAI
 try:
-    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-except:
-    st.error("🔑 Chave da API OpenAI não encontrada. Verifique o arquivo .streamlit/secrets.toml")
+    # Tenta diferentes nomes de chave que podem estar nos secrets
+    api_key = None
+    if "OPENAI_API_KEY" in st.secrets:
+        api_key = st.secrets["OPENAI_API_KEY"]
+    elif "openai_api_key" in st.secrets:
+        api_key = st.secrets["openai_api_key"]
+    elif "OPENAI_KEY" in st.secrets:
+        api_key = st.secrets["OPENAI_KEY"]
+    
+    if api_key is None:
+        st.error("🔑 Chave da API OpenAI não encontrada. Verifique o arquivo .streamlit/secrets.toml")
+        st.info("💡 Certifique-se de que a chave está definida como: OPENAI_API_KEY = 'sua_chave_aqui'")
+        st.stop()
+    
+    client = OpenAI(api_key=api_key)
+    st.success("✅ Conexão com OpenAI estabelecida!")
+    
+except Exception as e:
+    st.error(f"🔑 Erro ao configurar OpenAI: {str(e)}")
     st.stop()
 
 def classificar_nps(nota):
@@ -33,19 +49,46 @@ def classificar_nps(nota):
 def gerar_embeddings(textos):
     """Gera embeddings dos textos usando OpenAI"""
     try:
-        # Limita o tamanho dos textos para evitar problemas com a API
-        textos_limitados = [str(texto)[:8000] if len(str(texto)) > 8000 else str(texto) for texto in textos]
+        # Limpa e valida os textos
+        textos_limpos = []
+        for texto in textos:
+            # Converte para string e limpa
+            texto_str = str(texto).strip()
+            
+            # Remove caracteres problemáticos e limita tamanho
+            texto_limpo = texto_str.replace('\n', ' ').replace('\r', ' ')
+            if len(texto_limpo) > 8000:
+                texto_limpo = texto_limpo[:8000]
+            
+            # Só adiciona se não estiver vazio
+            if len(texto_limpo) > 0:
+                textos_limpos.append(texto_limpo)
+        
+        if not textos_limpos:
+            st.error("❌ Nenhum texto válido encontrado para análise.")
+            return None
+            
+        st.info(f"🔄 Processando {len(textos_limpos)} comentários...")
         
         # Nova sintaxe da OpenAI API v1.0+
         response = client.embeddings.create(
-            input=textos_limitados,
+            input=textos_limpos,
             model="text-embedding-ada-002"
         )
         
-        return [embedding.embedding for embedding in response.data]
+        embeddings = [embedding.embedding for embedding in response.data]
+        st.success(f"✅ Embeddings gerados com sucesso para {len(embeddings)} textos!")
+        
+        return embeddings
         
     except Exception as e:
         st.error(f"Erro ao gerar embeddings: {str(e)}")
+        
+        # Debug: mostra informações sobre os textos
+        st.write("**Debug - Primeiros textos:**")
+        for i, texto in enumerate(textos[:3]):
+            st.write(f"Texto {i}: {type(texto)} - '{str(texto)[:100]}...'")
+        
         return None
 
 def sugerir_motivos_por_cluster(df_filtrado, n_clusters=8):
@@ -57,37 +100,57 @@ def sugerir_motivos_por_cluster(df_filtrado, n_clusters=8):
         
         # Converte comentários para string e filtra válidos
         df_valido["Comentario"] = df_valido["Comentario"].astype(str)
+        
+        # Filtra comentários válidos com validação mais rigorosa
         mask_validos = (
             (df_valido["Comentario"] != '') & 
             (df_valido["Comentario"] != 'nan') &
-            (df_valido["Comentario"].str.len() > 10)
+            (df_valido["Comentario"] != 'None') &
+            (df_valido["Comentario"].str.len() > 10) &
+            (df_valido["Comentario"].str.strip() != '')
         )
-        df_valido = df_valido[mask_validos]
+        df_valido = df_valido[mask_validos].reset_index(drop=True)
         
         if len(df_valido) < 2:
             st.error("❌ Número insuficiente de comentários válidos para análise.")
+            st.info("💡 Dica: Verifique se há comentários com pelo menos 10 caracteres no dataset filtrado.")
             return None
         
         if len(df_valido) < n_clusters:
-            st.warning(f"Número insuficiente de comentários válidos ({len(df_valido)}). Reduzindo clusters para {max(2, len(df_valido)//2)}")
+            st.warning(f"⚠️ Comentários disponíveis ({len(df_valido)}) menor que clusters solicitados ({n_clusters}). Ajustando para {max(2, len(df_valido)//2)} clusters.")
             n_clusters = max(2, len(df_valido)//2)
         
-        textos = df_valido["Comentario"].astype(str).tolist()
+        # Prepara lista de textos limpos
+        textos = []
+        indices_validos = []
+        
+        for idx, comentario in enumerate(df_valido["Comentario"]):
+            texto_limpo = str(comentario).strip()
+            if len(texto_limpo) > 10:  # Validação extra
+                textos.append(texto_limpo)
+                indices_validos.append(idx)
+        
+        if len(textos) < 2:
+            st.error("❌ Nenhum comentário válido encontrado após limpeza.")
+            return None
+            
+        st.info(f"📊 Analisando {len(textos)} comentários válidos em {n_clusters} grupos.")
         
         # Gera embeddings
-        with st.spinner("Gerando embeddings com OpenAI..."):
+        with st.spinner("🤖 Gerando embeddings com OpenAI..."):
             embeddings = gerar_embeddings(textos)
         
-        if embeddings is None:
+        if embeddings is None or len(embeddings) == 0:
             return None
         
         # Aplica clustering
-        with st.spinner("Realizando análise de clusters..."):
+        with st.spinner("🔍 Realizando análise de clusters..."):
             kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
             labels = kmeans.fit_predict(embeddings)
         
-        df_valido = df_valido.copy()  # Evita SettingWithCopyWarning
-        df_valido.loc[:, "Cluster"] = labels
+        # Cria DataFrame final apenas com textos que foram processados
+        df_final = df_valido.iloc[indices_validos].copy()
+        df_final.loc[:, "Cluster"] = labels
         
         # Encontra comentários representativos
         representantes_idx, _ = pairwise_distances_argmin_min(kmeans.cluster_centers_, embeddings)
@@ -95,25 +158,28 @@ def sugerir_motivos_por_cluster(df_filtrado, n_clusters=8):
         motivos = []
         for i, idx in enumerate(representantes_idx):
             try:
-                linha = df_valido.iloc[idx]
+                linha = df_final.iloc[idx]
                 comentario_repr = linha["Comentario"]
                 classificacao = linha["Classificacao_NPS"]
                 
                 # Cria sugestão de motivo mais concisa
-                comentario_str = str(comentario_repr)
+                comentario_str = str(comentario_repr).strip()
                 if len(comentario_str) > 120:
                     sugestao = comentario_str[:117] + "..."
                 else:
                     sugestao = comentario_str
                 
+                # Conta quantos comentários estão neste cluster
+                count_cluster = len(df_final[df_final["Cluster"] == i])
+                
                 motivos.append({
                     "Cluster": f"Grupo {i+1}",
                     "Classificacao_NPS": classificacao,
                     "Comentário Representativo": sugestao,
-                    "Quantidade de Comentários": len(df_valido[df_valido["Cluster"] == i])
+                    "Quantidade de Comentários": count_cluster
                 })
             except Exception as e:
-                st.warning(f"Erro ao processar cluster {i}: {str(e)}")
+                st.warning(f"⚠️ Erro ao processar cluster {i+1}: {str(e)}")
                 continue
         
         if not motivos:
