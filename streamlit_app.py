@@ -109,6 +109,30 @@ def sugerir_motivos_por_cluster(df_filtrado, n_clusters=8):
         st.error(f"Erro na análise de clusters: {str(e)}")
         return None
 
+def detectar_problemas_csv(df):
+    """Detecta e corrige problemas comuns em arquivos CSV"""
+    problemas = []
+    
+    # Verifica colunas duplicadas
+    if df.columns.duplicated().any():
+        problemas.append("Colunas duplicadas detectadas")
+        df = df.loc[:, ~df.columns.duplicated()]
+    
+    # Verifica se há muitas colunas vazias
+    colunas_vazias = df.columns[df.isnull().all()].tolist()
+    if colunas_vazias:
+        problemas.append(f"Colunas completamente vazias: {len(colunas_vazias)}")
+        df = df.drop(columns=colunas_vazias)
+    
+    # Remove linhas completamente vazias
+    linhas_antes = len(df)
+    df = df.dropna(how='all')
+    linhas_removidas = linhas_antes - len(df)
+    if linhas_removidas > 0:
+        problemas.append(f"Linhas vazias removidas: {linhas_removidas}")
+    
+    return df, problemas
+
 def limpar_dados(df):
     """Limpa e padroniza os dados do DataFrame"""
     # Converte colunas para string para evitar problemas de tipo
@@ -144,6 +168,23 @@ if uploaded_file:
             else:
                 df = pd.read_excel(uploaded_file, header=1)
 
+        # Verificação e correção de problemas no CSV
+        df, problemas = detectar_problemas_csv(df)
+        if problemas:
+            st.warning("⚠️ Problemas detectados e corrigidos:")
+            for problema in problemas:
+                st.write(f"• {problema}")
+
+        # Mostra informações básicas do arquivo
+        st.info(f"📁 Arquivo carregado: {len(df)} linhas x {len(df.columns)} colunas")
+        
+        # Exibe as primeiras colunas para debug
+        with st.expander("🔍 Visualizar estrutura do arquivo"):
+            st.write("**Primeiras 10 colunas:**")
+            st.write(list(df.columns[:10]))
+            st.write("**Amostra dos dados:**")
+            st.dataframe(df.head(3))
+
         # Verificação de colunas mínimas
         if len(df.columns) < 7:
             st.error(f"❌ O arquivo possui apenas {len(df.columns)} colunas. São necessárias pelo menos 7 colunas.")
@@ -151,27 +192,60 @@ if uploaded_file:
             st.stop()
 
         # Renomeação das colunas
-        col_renames = {
-            df.columns[0]: "OrderId",
-            df.columns[1]: "Companhia", 
-            df.columns[2]: "Secao",
-            df.columns[3]: "Tipo_Questao",
-            df.columns[4]: "Nota",
-            df.columns[5]: "Motivo_Selecionado",
-            df.columns[6]: "Comentario"
-        }
-        
-        if len(df.columns) > 11:
-            col_renames[df.columns[11]] = "Grupo_Motivo"
+        try:
+            col_renames = {
+                df.columns[0]: "OrderId",
+                df.columns[1]: "Companhia", 
+                df.columns[2]: "Secao",
+                df.columns[3]: "Tipo_Questao",
+                df.columns[4]: "Nota",
+                df.columns[5]: "Motivo_Selecionado",
+                df.columns[6]: "Comentario"
+            }
+            
+            if len(df.columns) > 11:
+                col_renames[df.columns[11]] = "Grupo_Motivo"
 
-        df = df.rename(columns=col_renames)
+            # Renomeia apenas as colunas que existem
+            df_renamed = df.rename(columns=col_renames)
+            
+            # Verifica se o rename funcionou
+            required_cols = ["OrderId", "Companhia", "Secao", "Tipo_Questao", "Nota", "Motivo_Selecionado", "Comentario"]
+            missing_cols = [col for col in required_cols if col not in df_renamed.columns]
+            
+            if missing_cols:
+                st.error(f"❌ Colunas não encontradas após renomeação: {missing_cols}")
+                st.write("**Colunas disponíveis:**", list(df.columns))
+                st.stop()
+            else:
+                df = df_renamed
+                
+        except Exception as e:
+            st.error(f"❌ Erro na renomeação das colunas: {str(e)}")
+            st.write("**Estrutura atual do DataFrame:**")
+            st.write(f"Número de colunas: {len(df.columns)}")
+            st.write("Primeiras 10 colunas:", list(df.columns[:10]))
+            st.stop()
 
         # Seleção das colunas essenciais
-        colunas_essenciais = ["OrderId", "Companhia", "Secao", "Tipo_Questao", "Nota", "Motivo_Selecionado", "Comentario"]
-        if "Grupo_Motivo" in df.columns:
-            colunas_essenciais.append("Grupo_Motivo")
+        try:
+            colunas_essenciais = ["OrderId", "Companhia", "Secao", "Tipo_Questao", "Nota", "Motivo_Selecionado", "Comentario"]
+            if "Grupo_Motivo" in df.columns:
+                colunas_essenciais.append("Grupo_Motivo")
 
-        df = df[colunas_essenciais]
+            # Verifica se todas as colunas essenciais existem
+            colunas_existentes = [col for col in colunas_essenciais if col in df.columns]
+            if len(colunas_existentes) < 7:
+                st.error(f"❌ Nem todas as colunas essenciais foram encontradas.")
+                st.write("**Colunas encontradas:**", colunas_existentes)
+                st.write("**Colunas necessárias:**", colunas_essenciais[:7])
+                st.stop()
+
+            df = df[colunas_existentes]
+            
+        except Exception as e:
+            st.error(f"❌ Erro ao selecionar colunas essenciais: {str(e)}")
+            st.stop()
         
         # Limpeza dos dados
         try:
