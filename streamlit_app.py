@@ -678,7 +678,7 @@ def gerar_analise_detratores(df_filtrado, df_final):
         st.metric("💥 Notas 0", f"{notas_zero}", f"{perc_zero:.1f}%")
     
     with col4:
-        if "df_final" in locals() and "Cluster" in df_final.columns:
+        if df_final is not None and "Cluster" in df_final.columns:
             clusters_detratores = len(df_final[df_final["Classificacao_NPS"] == "Detrator"]["Cluster"].unique())
             st.metric("🎯 Grupos Detratores", clusters_detratores)
         else:
@@ -774,7 +774,7 @@ def gerar_analise_detratores(df_filtrado, df_final):
         
         # Comentários do maior grupo de detratores (se existir análise de clusters)
         st.markdown("#### 🎯 Comentários do Maior Grupo de Detratores")
-        if "df_final" in locals() and "Cluster" in df_final.columns:
+        if df_final is not None and "Cluster" in df_final.columns:
             detratores_clustered = df_final[df_final["Classificacao_NPS"] == "Detrator"]
             if len(detratores_clustered) > 0:
                 maior_cluster = detratores_clustered["Cluster"].value_counts().index[0]
@@ -783,6 +783,8 @@ def gerar_analise_detratores(df_filtrado, df_final):
                 st.write(f"**Grupo {maior_cluster + 1} - {len(comentarios_cluster)} comentários**")
                 for comentario in comentarios_cluster["Comentario"].head(3):
                     st.write(f"• {comentario}")
+        else:
+            st.info("Análise de clusters não disponível para esta visualização.")
     
     with tab4:
         st.markdown("### ⚡ Plano de Ação Imediato")
