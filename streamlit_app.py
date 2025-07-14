@@ -46,23 +46,49 @@ def classificar_nps(nota):
     except (ValueError, TypeError):
         return "Não classificado"
 
+def gerar_embeddings_lote(textos, tamanho_lote=20):
+    """Gera embeddings em lotes menores para evitar problemas"""
+    try:
+        todos_embeddings = []
+        
+        for i in range(0, len(textos), tamanho_lote):
+            lote = textos[i:i+tamanho_lote]
+            st.info(f"🔄 Processando lote {i//tamanho_lote + 1} de {(len(textos)-1)//tamanho_lote + 1} ({len(lote)} textos)")
+            
+            response = client.embeddings.create(
+                input=lote,
+                model="text-embedding-ada-002"
+            )
+            
+            lote_embeddings = [embedding.embedding for embedding in response.data]
+            todos_embeddings.extend(lote_embeddings)
+        
+        return todos_embeddings
+        
+    except Exception as e:
+        st.error(f"Erro no processamento em lotes: {str(e)}")
+        return None
 def gerar_embeddings(textos):
     """Gera embeddings dos textos usando OpenAI"""
     try:
-        # Limpa e valida os textos
+        # Limpa e valida os textos de forma mais rigorosa
         textos_limpos = []
-        for texto in textos:
+        for i, texto in enumerate(textos):
             # Converte para string e limpa
             texto_str = str(texto).strip()
             
-            # Remove caracteres problemáticos e limita tamanho
-            texto_limpo = texto_str.replace('\n', ' ').replace('\r', ' ')
+            # Remove caracteres problemáticos
+            texto_limpo = texto_str.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+            # Remove caracteres de controle
+            texto_limpo = ''.join(char for char in texto_limpo if ord(char) >= 32 or char in '\n\r\t')
+            
+            # Limita tamanho (OpenAI tem limite de tokens)
             if len(texto_limpo) > 8000:
                 texto_limpo = texto_limpo[:8000]
             
-            # Só adiciona se não estiver vazio
-            if len(texto_limpo) > 0:
-                textos_limpos.append(texto_limpo)
+            # Só adiciona se tiver conteúdo válido
+            if len(texto_limpo.strip()) >= 10:
+                textos_limpos.append(texto_limpo.strip())
         
         if not textos_limpos:
             st.error("❌ Nenhum texto válido encontrado para análise.")
@@ -70,25 +96,30 @@ def gerar_embeddings(textos):
             
         st.info(f"🔄 Processando {len(textos_limpos)} comentários...")
         
-        # Nova sintaxe da OpenAI API v1.0+
-        response = client.embeddings.create(
-            input=textos_limpos,
-            model="text-embedding-ada-002"
-        )
+        # Tenta com lotes menores se houver muitos textos
+        if len(textos_limpos) > 50:
+            st.info("📦 Usando processamento em lotes para melhor performance...")
+            return gerar_embeddings_lote(textos_limpos, tamanho_lote=20)
         
-        embeddings = [embedding.embedding for embedding in response.data]
-        st.success(f"✅ Embeddings gerados com sucesso para {len(embeddings)} textos!")
-        
-        return embeddings
+        # Para quantidades menores, processa tudo de uma vez
+        try:
+            response = client.embeddings.create(
+                input=textos_limpos,
+                model="text-embedding-ada-002"
+            )
+            
+            embeddings = [embedding.embedding for embedding in response.data]
+            st.success(f"✅ Embeddings gerados com sucesso para {len(embeddings)} textos!")
+            
+            return embeddings
+            
+        except Exception as api_error:
+            st.warning(f"⚠️ Erro no processamento direto: {str(api_error)}")
+            st.info("🔄 Tentando processamento em lotes menores...")
+            return gerar_embeddings_lote(textos_limpos, tamanho_lote=10)
         
     except Exception as e:
-        st.error(f"Erro ao gerar embeddings: {str(e)}")
-        
-        # Debug: mostra informações sobre os textos
-        st.write("**Debug - Primeiros textos:**")
-        for i, texto in enumerate(textos[:3]):
-            st.write(f"Texto {i}: {type(texto)} - '{str(texto)[:100]}...'")
-        
+        st.error(f"Erro geral ao gerar embeddings: {str(e)}")
         return None
 
 def sugerir_motivos_por_cluster(df_filtrado, n_clusters=8):
@@ -428,41 +459,53 @@ if uploaded_file:
             with col2:
                 n_clusters = st.number_input("Número de grupos:", min_value=2, max_value=15, value=8)
 
-            if st.button("🔗 Gerar nova sugestão de motivos por IA", type="primary"):
-                if len(df_filtrado) > 0:
-                    sugestoes = sugerir_motivos_por_cluster(df_filtrado, n_clusters)
-                    
-                    if sugestoes is not None and not sugestoes.empty:
-                        st.success("✅ Análise concluída!")
-                        st.markdown("### 🎯 Sugestões de novos motivos")
-                        
-                        # Exibe as sugestões
-                        st.dataframe(sugestoes, use_container_width=True)
-                        
-                        # Download do CSV
-                        csv_buffer = io.StringIO()
-                        sugestoes.to_csv(csv_buffer, index=False, encoding="utf-8-sig")
-                        csv_data = csv_buffer.getvalue().encode("utf-8-sig")
-                        
-                        st.download_button(
-                            label="📥 Baixar sugestões em CSV",
-                            data=csv_data,
-                            file_name="sugestoes_motivos_nps.csv",
-                            mime="text/csv"
+                if st.button("🔗 Gerar nova sugestão de motivos por IA", type="primary"):
+                    # Primeiro, vamos testar a conexão com a API
+                    st.info("🔬 Testando conexão com OpenAI...")
+                    try:
+                        test_response = client.embeddings.create(
+                            input=["Teste de conexão"],
+                            model="text-embedding-ada-002"
                         )
+                        st.success("✅ Conexão com OpenAI funcionando!")
+                    except Exception as test_error:
+                        st.error(f"❌ Falha no teste de conexão: {str(test_error)}")
+                        st.stop()
+                    
+                    if len(df_filtrado) > 0:
+                        sugestoes = sugerir_motivos_por_cluster(df_filtrado, n_clusters)
                         
-                        # Insights adicionais
-                        st.markdown("### 📈 Insights Principais")
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.metric("🔢 Grupos Identificados", len(sugestoes))
-                        with col2:
-                            classificacao_mais_comum = sugestoes["Classificacao_NPS"].mode()[0]
-                            st.metric("📊 Classificação Predominante", classificacao_mais_comum)
+                        if sugestoes is not None and not sugestoes.empty:
+                            st.success("✅ Análise concluída!")
+                            st.markdown("### 🎯 Sugestões de novos motivos")
+                            
+                            # Exibe as sugestões
+                            st.dataframe(sugestoes, use_container_width=True)
+                            
+                            # Download do CSV
+                            csv_buffer = io.StringIO()
+                            sugestoes.to_csv(csv_buffer, index=False, encoding="utf-8-sig")
+                            csv_data = csv_buffer.getvalue().encode("utf-8-sig")
+                            
+                            st.download_button(
+                                label="📥 Baixar sugestões em CSV",
+                                data=csv_data,
+                                file_name="sugestoes_motivos_nps.csv",
+                                mime="text/csv"
+                            )
+                            
+                            # Insights adicionais
+                            st.markdown("### 📈 Insights Principais")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("🔢 Grupos Identificados", len(sugestoes))
+                            with col2:
+                                classificacao_mais_comum = sugestoes["Classificacao_NPS"].mode()[0]
+                                st.metric("📊 Classificação Predominante", classificacao_mais_comum)
+                        else:
+                            st.error("❌ Não foi possível gerar as sugestões. Verifique os dados e tente novamente.")
                     else:
-                        st.error("❌ Não foi possível gerar as sugestões. Verifique os dados e tente novamente.")
-                else:
-                    st.warning("⚠️ Nenhum registro encontrado com os filtros aplicados.")
+                        st.warning("⚠️ Nenhum registro encontrado com os filtros aplicados.")
 
     except Exception as e:
         st.error(f"❌ Erro ao processar o arquivo: {str(e)}")
