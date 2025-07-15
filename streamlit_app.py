@@ -7,6 +7,16 @@ from sklearn.metrics import pairwise_distances_argmin_min
 import io
 import plotly.express as px
 import plotly.graph_objects as go
+import time
+
+# Contador global para keys únicos
+if 'plot_counter' not in st.session_state:
+    st.session_state.plot_counter = 0
+
+def get_unique_key(prefix="plot"):
+    """Gera uma key única incrementando o contador"""
+    st.session_state.plot_counter += 1
+    return f"{prefix}_{st.session_state.plot_counter}_{int(time.time() * 1000) % 10000}"
 
 # Configuração da página
 st.set_page_config(page_title="NPS Insights Carglass", layout="wide")
@@ -475,8 +485,8 @@ def gerar_dashboard_termometro(df_filtrado, key_suffix="default"):
     
     with col1:
         if fig_termometro:
-            # Garante que o key seja sempre único
-            unique_key = f"termometro_emocional_{key_suffix}_{len(df_filtrado)}"
+            # Usa key única gerada automaticamente
+            unique_key = get_unique_key("termometro_emocional")
             st.plotly_chart(fig_termometro, use_container_width=True, key=unique_key)
     
     with col2:
@@ -647,7 +657,7 @@ def gerar_relatorio_detalhado(df_filtrado, sugestoes, df_final):
                 "Detrator": "#DC143C"
             }
         )
-        st.plotly_chart(fig_grupos, use_container_width=True, key=f"distribuicao_grupos_clusters_{len(sugestoes_expandidas)}")
+        st.plotly_chart(fig_grupos, use_container_width=True, key=get_unique_key("grupos_clusters"))
         
         # Insights principais
         st.markdown("#### 🎯 Principais Insights")
