@@ -50,6 +50,133 @@ def classificar_nps(nota):
         return "Não classificado"
 
 
+def classificar_termometro_cliente(nota, comentario):
+    """
+    Classifica o estado emocional do cliente baseado na nota e comentário
+    """
+    try:
+        nota = float(nota)
+        comentario_lower = str(comentario).lower()
+        
+        # Palavras-chave para diferentes estados emocionais
+        palavras_extremamente_insatisfeito = [
+            'péssimo', 'horrível', 'terrível', 'inaceitável', 'revoltante', 
+            'indignado', 'furioso', 'nunca mais', 'decepcionante', 'absurdo',
+            'inadmissível', 'desrespeitoso', 'lamentável', 'vergonhoso'
+        ]
+        
+        palavras_atritado = [
+            'demorou', 'demora', 'atraso', 'problema', 'dificuldade', 
+            'insatisfeito', 'chateado', 'irritado', 'complicado', 'difícil',
+            'transtorno', 'erro', 'falha', 'ruim', 'desorganizado'
+        ]
+        
+        palavras_feliz = [
+            'excelente', 'ótimo', 'perfeito', 'maravilhoso', 'satisfeito',
+            'rápido', 'eficiente', 'bom atendimento', 'parabéns', 'recomendo',
+            'tudo certo', 'nota 10', 'muito bom', 'adorei', 'fantástico'
+        ]
+        
+        # Verifica palavras no comentário
+        tem_palavras_extremas = any(palavra in comentario_lower for palavra in palavras_extremamente_insatisfeito)
+        tem_palavras_atrito = any(palavra in comentario_lower for palavra in palavras_atritado)
+        tem_palavras_feliz = any(palavra in comentario_lower for palavra in palavras_feliz)
+        
+        # Lógica de classificação
+        if nota <= 2 or tem_palavras_extremas:
+            return "😡 Extremamente Insatisfeito"
+        elif nota <= 6 or (tem_palavras_atrito and not tem_palavras_feliz):
+            return "😤 Atritado"
+        elif nota >= 9 or tem_palavras_feliz:
+            return "😊 Feliz"
+        elif nota >= 7:
+            return "😐 Neutro"
+        else:
+            return "😤 Atritado"
+            
+    except Exception as e:
+        return "❓ Não classificado"
+
+
+def encontrar_pior_comentario_com_os(df):
+    """
+    Encontra o pior comentário (menor nota) e identifica a Ordem de Serviço
+    """
+    try:
+        # Ordena por nota (crescente) para pegar o pior
+        df_ordenado = df.sort_values(['Nota', 'Classificacao_NPS'], 
+                                   ascending=[True, False]).reset_index(drop=True)
+        
+        if len(df_ordenado) == 0:
+            return None, None, None, None
+        
+        pior_linha = df_ordenado.iloc[0]
+        
+        pior_nota = pior_linha['Nota']
+        pior_comentario = pior_linha['Comentario']
+        order_id = pior_linha.get('OrderId', 'N/A')
+        classificacao_emocional = classificar_termometro_cliente(pior_nota, pior_comentario)
+        
+        return pior_nota, pior_comentario, order_id, classificacao_emocional
+        
+    except Exception as e:
+        st.error(f"Erro ao encontrar pior comentário: {str(e)}")
+        return None, None, None, None
+
+
+def criar_termometro_visual(df_filtrado):
+    """
+    Cria um termômetro visual mostrando a distribuição emocional dos clientes
+    """
+    if len(df_filtrado) == 0:
+        return None
+    
+    # Aplica classificação emocional para todos os registros
+    df_temp = df_filtrado.copy()
+    df_temp['Termometro_Cliente'] = df_temp.apply(
+        lambda row: classificar_termometro_cliente(row['Nota'], row['Comentario']), 
+        axis=1
+    )
+    
+    # Conta distribuição
+    distribuicao = df_temp['Termometro_Cliente'].value_counts()
+    
+    # Cores para cada estado emocional
+    cores = {
+        '😡 Extremamente Insatisfeito': '#8B0000',  # Vermelho escuro
+        '😤 Atritado': '#FF6347',                   # Tomate
+        '😐 Neutro': '#FFD700',                     # Dourado
+        '😊 Feliz': '#32CD32'                       # Verde lima
+    }
+    
+    # Cria gráfico de termômetro
+    fig = go.Figure()
+    
+    # Dados para o gráfico
+    labels = distribuicao.index.tolist()
+    values = distribuicao.values.tolist()
+    colors = [cores.get(label, '#808080') for label in labels]
+    
+    fig.add_trace(go.Bar(
+        y=labels,
+        x=values,
+        orientation='h',
+        marker=dict(color=colors),
+        text=[f'{val} ({val/len(df_filtrado)*100:.1f}%)' for val in values],
+        textposition='auto',
+    ))
+    
+    fig.update_layout(
+        title="🌡️ Termômetro Emocional dos Clientes",
+        xaxis_title="Quantidade de Clientes",
+        yaxis_title="Estado Emocional",
+        height=400,
+        showlegend=False
+    )
+    
+    return fig, df_temp
+
+
 def detectar_problemas_csv(df):
     """Detecta e corrige problemas comuns em arquivos CSV"""
     problemas = []
@@ -292,6 +419,98 @@ def sugerir_motivos_por_cluster(df_filtrado, n_clusters=8):
     except Exception as e:
         st.error(f"Erro na análise de clusters: {str(e)}")
         return None, None
+
+
+def gerar_dashboard_termometro(df_filtrado):
+    """
+    Gera um dashboard completo com termômetro emocional e análise da OS crítica
+    """
+    st.markdown("---")
+    st.markdown("## 🌡️ Dashboard Termômetro Emocional")
+    
+    # Aplica classificação emocional
+    df_temp = df_filtrado.copy()
+    df_temp['Termometro_Cliente'] = df_temp.apply(
+        lambda row: classificar_termometro_cliente(row['Nota'], row['Comentario']), 
+        axis=1
+    )
+    
+    # Cria o termômetro visual
+    fig_termometro, df_com_termometro = criar_termometro_visual(df_filtrado)
+    
+    # Layout em colunas
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        if fig_termometro:
+            st.plotly_chart(fig_termometro, use_container_width=True)
+    
+    with col2:
+        st.markdown("### 📊 Resumo Emocional")
+        
+        # Métricas resumidas
+        total = len(df_temp)
+        
+        # Conta cada tipo
+        extremo = len(df_temp[df_temp['Termometro_Cliente'] == '😡 Extremamente Insatisfeito'])
+        atritado = len(df_temp[df_temp['Termometro_Cliente'] == '😤 Atritado'])
+        neutro = len(df_temp[df_temp['Termometro_Cliente'] == '😐 Neutro'])
+        feliz = len(df_temp[df_temp['Termometro_Cliente'] == '😊 Feliz'])
+        
+        # Mostra métricas
+        st.metric("😡 Extremamente Insatisfeito", 
+                 f"{extremo}", 
+                 f"{extremo/total*100:.1f}%" if total > 0 else "0%")
+        
+        st.metric("😤 Atritado", 
+                 f"{atritado}", 
+                 f"{atritado/total*100:.1f}%" if total > 0 else "0%")
+        
+        st.metric("😐 Neutro", 
+                 f"{neutro}", 
+                 f"{neutro/total*100:.1f}%" if total > 0 else "0%")
+        
+        st.metric("😊 Feliz", 
+                 f"{feliz}", 
+                 f"{feliz/total*100:.1f}%" if total > 0 else "0%")
+    
+    # Seção do pior comentário
+    st.markdown("### 🚨 Análise do Cliente Mais Crítico")
+    
+    pior_nota, pior_comentario, order_id, classificacao_emocional = encontrar_pior_comentario_com_os(df_filtrado)
+    
+    if pior_nota is not None:
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("📉 Pior Nota", f"{pior_nota}")
+        
+        with col2:
+            st.metric("🎯 Ordem de Serviço", f"{order_id}")
+        
+        with col3:
+            st.metric("🌡️ Estado Emocional", classificacao_emocional)
+        
+        # Exibe o comentário em destaque
+        st.markdown("#### 💬 Comentário Mais Crítico:")
+        st.error(f"**OS {order_id}:** {pior_comentario}")
+        
+        # Recomendações para este caso
+        st.markdown("#### ⚡ Ações Recomendadas para esta OS:")
+        acoes_criticas = [
+            f"🔥 **URGENTE**: Contatar cliente da OS {order_id} imediatamente",
+            "📞 **Ligação direta**: Gerente deve fazer contato pessoal",
+            "🎯 **Resolução**: Oferecer solução imediata e compensação",
+            "📝 **Follow-up**: Acompanhar satisfação após resolução",
+            "🔍 **Investigação**: Analisar processo que gerou este problema"
+        ]
+        
+        for acao in acoes_criticas:
+            st.markdown(acao)
+    else:
+        st.info("ℹ️ Não foi possível identificar o comentário mais crítico.")
+    
+    return df_com_termometro
 
 
 def gerar_relatorio_detalhado(df_filtrado, sugestoes, df_final):
@@ -566,12 +785,17 @@ def gerar_analise_detratores(df_filtrado, df_final):
             st.markdown(f"#### 🚨 {len(criticos)} Comentários Extremamente Críticos (Notas 0-2)")
             
             for idx, row in criticos.head(5).iterrows():
-                with st.expander(f"Nota {row['Nota']} - {row.get('Motivo_Selecionado', 'N/A')}"):
+                with st.expander(f"Nota {row['Nota']} - OS: {row.get('OrderId', 'N/A')} - {row.get('Motivo_Selecionado', 'N/A')}"):
                     st.write(f"**Comentário:** {row['Comentario']}")
+                    st.write(f"**Ordem de Serviço:** {row.get('OrderId', 'N/A')}")
                     if "Tipo_Questao" in row:
                         st.write(f"**Tipo:** {row['Tipo_Questao']}")
                     if "Companhia" in row:
                         st.write(f"**Seguradora:** {row['Companhia']}")
+                    
+                    # Mostra o termômetro emocional deste comentário
+                    estado_emocional = classificar_termometro_cliente(row['Nota'], row['Comentario'])
+                    st.write(f"**Estado Emocional:** {estado_emocional}")
         
         # Comentários do maior grupo de detratores (se existir análise de clusters)
         st.markdown("#### 🎯 Comentários do Maior Grupo de Detratores")
@@ -582,8 +806,8 @@ def gerar_analise_detratores(df_filtrado, df_final):
                 comentarios_cluster = detratores_clustered[detratores_clustered["Cluster"] == maior_cluster]
                 
                 st.write(f"**Grupo {maior_cluster + 1} - {len(comentarios_cluster)} comentários**")
-                for comentario in comentarios_cluster["Comentario"].head(3):
-                    st.write(f"• {comentario}")
+                for _, row in comentarios_cluster.head(3).iterrows():
+                    st.write(f"• **OS {row.get('OrderId', 'N/A')}:** {str(row['Comentario'])[:200]}...")
         else:
             st.info("Análise de clusters não disponível para esta visualização.")
     
@@ -640,7 +864,7 @@ st.markdown("### 📁 Upload do Arquivo")
 uploaded_file = st.file_uploader(
     "Envie o arquivo Excel ou CSV com os comentários NPS:", 
     type=[".xlsx", ".csv"],
-    help="O arquivo deve conter as colunas: Nota, Tipo_Questao, Comentario, Motivo_Selecionado"
+    help="O arquivo deve conter as colunas: OrderId, Companhia, Secao, Tipo_Questao, Nota, Motivo_Selecionado, Comentario"
 )
 
 if uploaded_file:
@@ -687,8 +911,8 @@ if uploaded_file:
                 df.columns[6]: "Comentario"
             }
             
-            if len(df.columns) > 11:
-                col_renames[df.columns[11]] = "Grupo_Motivo"
+            if len(df.columns) > 8:
+                col_renames[df.columns[8]] = "Grupo_Motivo"
 
             # Renomeia apenas as colunas que existem
             df_renamed = df.rename(columns=col_renames)
@@ -783,6 +1007,10 @@ if uploaded_file:
         with col3:
             st.metric("👎 Detratores", len(df[df["Classificacao_NPS"] == "Detrator"]))
 
+        # === NOVO: DASHBOARD TERMÔMETRO EMOCIONAL ===
+        if len(df) > 0:
+            df_com_termometro = gerar_dashboard_termometro(df)
+
         # Filtros
         st.markdown("### 🔍 Filtros e Visualização")
         col1, col2 = st.columns(2)
@@ -805,7 +1033,7 @@ if uploaded_file:
 
         # Exibição dos dados filtrados - convertendo para string para evitar erros do PyArrow
         try:
-            df_display = df_filtrado[["Nota", "Classificacao_NPS", "Tipo_Questao", "Comentario", "Motivo_Selecionado"]].copy()
+            df_display = df_filtrado[["OrderId", "Nota", "Classificacao_NPS", "Tipo_Questao", "Comentario", "Motivo_Selecionado"]].copy()
             
             # Converte todas as colunas para string para evitar problemas de tipo
             for col in df_display.columns:
@@ -815,7 +1043,12 @@ if uploaded_file:
         except Exception as e:
             st.error(f"Erro ao exibir dados: {str(e)}")
             # Fallback: exibe sem formatação especial
-            st.write(df_filtrado[["Nota", "Classificacao_NPS", "Tipo_Questao", "Comentario", "Motivo_Selecionado"]].head(100))
+            st.write(df_filtrado[["OrderId", "Nota", "Classificacao_NPS", "Tipo_Questao", "Comentario", "Motivo_Selecionado"]].head(100))
+
+        # === TERMÔMETRO PARA DADOS FILTRADOS ===
+        if len(df_filtrado) > 0:
+            st.markdown("### 🌡️ Termômetro dos Dados Filtrados")
+            df_filtrado_termometro = gerar_dashboard_termometro(df_filtrado)
 
         # Análise com IA
         st.markdown("### 🤖 Análise com Inteligência Artificial")
@@ -897,19 +1130,26 @@ else:
     ### 📋 Instruções de Uso
     
     1. **Faça upload** de um arquivo CSV ou Excel com os dados do NPS
-    2. **Aplique filtros** por tipo de questão e classificação NPS
-    3. **Execute a análise** com IA para gerar sugestões de motivos
-    4. **Baixe os resultados** em formato CSV
+    2. **Visualize o termômetro emocional** para entender o estado dos clientes
+    3. **Identifique a OS mais crítica** para ação imediata
+    4. **Aplique filtros** por tipo de questão e classificação NPS
+    5. **Execute a análise** com IA para gerar sugestões de motivos
+    6. **Baixe os resultados** em formato CSV
     
     #### 📊 Estrutura Esperada do Arquivo:
-    - **Coluna 1**: OrderId
+    - **Coluna 1**: OrderId (Ordem de Serviço)
     - **Coluna 2**: Companhia  
     - **Coluna 3**: Secao
     - **Coluna 4**: Tipo_Questao (ex: "Carglass", "Lojista")
     - **Coluna 5**: Nota (0-10)
     - **Coluna 6**: Motivo_Selecionado
     - **Coluna 7**: Comentario
-    - **Coluna 12** (opcional): Grupo_Motivo
+    - **Coluna 9** (opcional): Grupo_Motivo
+    
+    #### 🌡️ Novos Recursos:
+    - **Termômetro Emocional**: Classifica clientes em Feliz, Neutro, Atritado ou Extremamente Insatisfeito
+    - **Identificação de OS Crítica**: Mostra a Ordem de Serviço do pior comentário para ação imediata
+    - **Dashboard Visual**: Gráficos interativos para análise rápida
     
     ### 📋 Requirements.txt
     ```txt
