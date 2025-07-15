@@ -453,7 +453,7 @@ def sugerir_motivos_por_cluster(df_filtrado, n_clusters=8):
         return None, None
 
 
-def gerar_dashboard_termometro(df_filtrado):
+def gerar_dashboard_termometro(df_filtrado, key_suffix=""):
     """
     Gera um dashboard completo com termômetro emocional e análise da OS crítica
     """
@@ -475,7 +475,7 @@ def gerar_dashboard_termometro(df_filtrado):
     
     with col1:
         if fig_termometro:
-            st.plotly_chart(fig_termometro, use_container_width=True)
+            st.plotly_chart(fig_termometro, use_container_width=True, key=f"termometro_emocional_{key_suffix}")
     
     with col2:
         st.markdown("### 📊 Resumo Emocional")
@@ -645,7 +645,7 @@ def gerar_relatorio_detalhado(df_filtrado, sugestoes, df_final):
                 "Detrator": "#DC143C"
             }
         )
-        st.plotly_chart(fig_grupos, use_container_width=True)
+        st.plotly_chart(fig_grupos, use_container_width=True, key="distribuicao_grupos_clusters")
         
         # Insights principais
         st.markdown("#### 🎯 Principais Insights")
