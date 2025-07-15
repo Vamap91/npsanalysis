@@ -1039,56 +1039,38 @@ if uploaded_file:
         with col3:
             st.metric("👎 Detratores", len(df[df["Classificacao_NPS"] == "Detrator"]))
 
-        # === NOVO: DASHBOARD TERMÔMETRO EMOCIONAL ===
-        if len(df) > 0:
-            df_com_termometro = gerar_dashboard_termometro(df)
-
-        # Filtros
-        st.markdown("### 🔍 Filtros e Visualização")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            tipos_questao = ["Todos"] + sorted(df["Tipo_Questao"].dropna().unique().tolist())
-            tipo_questao = st.selectbox("Filtrar por tipo de questão:", tipos_questao)
-        
-        with col2:
-            nps_filter = st.selectbox("Filtrar por classificação NPS:", ["Todos", "Promotor", "Neutro", "Detrator"])
-
-        # Aplicação dos filtros
-        df_filtrado = df.copy()
-        if tipo_questao != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["Tipo_Questao"] == tipo_questao]
-        if nps_filter != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["Classificacao_NPS"] == nps_filter]
-
-        st.info(f"📋 Exibindo {len(df_filtrado)} registros após aplicação dos filtros")
-
         # === ADIÇÃO DO ESTADO EMOCIONAL E JUSTIFICATIVA AO DATASET ORIGINAL ===
         # Adiciona as colunas Estado_Emocional e Justificativa_Estado_Emocional ao DataFrame completo
         if 'Estado_Emocional' not in df.columns or 'Justificativa_Estado_Emocional' not in df.columns:
-            # Aplica classificação com justificativa
-            resultado_classificacao = df.apply(
-                lambda row: classificar_termometro_cliente(row['Nota'], row['Comentario']), 
-                axis=1
-            )
-            
-            # Separa estado emocional e justificativa
-            df['Estado_Emocional'] = [resultado[0] for resultado in resultado_classificacao]
-            df['Justificativa_Estado_Emocional'] = [resultado[1] for resultado in resultado_classificacao]
-        
-        # Atualiza também o DataFrame filtrado
-        if 'Estado_Emocional' not in df_filtrado.columns or 'Justificativa_Estado_Emocional' not in df_filtrado.columns:
-            resultado_classificacao_filtrado = df_filtrado.apply(
-                lambda row: classificar_termometro_cliente(row['Nota'], row['Comentario']), 
-                axis=1
-            )
-            
-            df_filtrado['Estado_Emocional'] = [resultado[0] for resultado in resultado_classificacao_filtrado]
-            df_filtrado['Justificativa_Estado_Emocional'] = [resultado[1] for resultado in resultado_classificacao_filtrado]
+            with st.spinner("🌡️ Analisando estado emocional dos clientes..."):
+                # Aplica classificação com justificativa
+                resultado_classificacao = df.apply(
+                    lambda row: classificar_termometro_cliente(row['Nota'], row['Comentario']), 
+                    axis=1
+                )
+                
+                # Separa estado emocional e justificativa
+                df['Estado_Emocional'] = [resultado[0] for resultado in resultado_classificacao]
+                df['Justificativa_Estado_Emocional'] = [resultado[1] for resultado in resultado_classificacao]
 
-        # === BOTÃO DE DOWNLOAD DO ARQUIVO ORIGINAL COM ESTADO EMOCIONAL E JUSTIFICATIVA ===
-        st.markdown("### 📥 Download do Arquivo com Estado Emocional")
+        # === SEÇÃO DESTACADA DE DOWNLOAD ===
+        st.markdown("---")
+        st.markdown("## 📥 **DOWNLOAD COM ANÁLISE EMOCIONAL**")
+        st.markdown("### 🎯 Baixe seu arquivo original enriquecido com IA!")
         
+        # Cria destaque visual para os botões
+        st.markdown("""
+        <div style='background-color: #f0f8ff; padding: 20px; border-radius: 10px; border-left: 5px solid #1f77b4; margin: 10px 0;'>
+            <h4 style='color: #1f77b4; margin: 0;'>✨ Novo! Arquivo com Estado Emocional + Justificativas</h4>
+            <p style='margin: 5px 0; color: #333;'>Seu arquivo original agora inclui duas novas colunas:</p>
+            <ul style='margin: 5px 0; color: #333;'>
+                <li><strong>Estado_Emocional:</strong> 😊 Feliz, 😐 Neutro, 😤 Atritado, 😡 Extremamente Insatisfeito</li>
+                <li><strong>Justificativa_Estado_Emocional:</strong> Explicação detalhada do motivo da classificação</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Botões de download em destaque
         col1, col2 = st.columns(2)
         
         with col1:
@@ -1114,15 +1096,97 @@ if uploaded_file:
             csv_data_completo = csv_completo.encode("utf-8-sig")
             
             st.download_button(
-                label="📊 Baixar Arquivo Completo com Estado Emocional + Justificativa",
+                label="📊 BAIXAR ARQUIVO COMPLETO\n🌡️ Com Estado Emocional + Justificativas",
                 data=csv_data_completo,
-                file_name=f"nps_com_estado_emocional_completo_{len(df_download_completo)}_registros.csv",
+                file_name=f"nps_completo_com_analise_emocional_{len(df_download_completo)}_registros.csv",
                 mime="text/csv",
-                help=f"Baixa todos os {len(df_download_completo)} registros com Estado_Emocional e Justificativa_Estado_Emocional",
-                use_container_width=True
+                help=f"Baixa todos os {len(df_download_completo)} registros originais + Estado_Emocional + Justificativa_Estado_Emocional",
+                use_container_width=True,
+                type="primary"
             )
+            
+            # Mostra estatísticas do arquivo completo
+            st.info(f"📈 **{len(df_download_completo):,} registros** no arquivo completo")
         
         with col2:
+            st.markdown("#### 👁️ Prévia do que você vai baixar:")
+            
+            # Mostra estatísticas do estado emocional
+            distribuicao_emocional = df['Estado_Emocional'].value_counts()
+            
+            for estado, quantidade in distribuicao_emocional.items():
+                percentual = (quantidade / len(df)) * 100
+                st.write(f"**{estado}:** {quantidade:,} ({percentual:.1f}%)")
+            
+            st.markdown("---")
+            st.write(f"**📊 Total:** {len(df):,} registros")
+            st.write(f"**📋 Colunas:** {len(df.columns)} (incluindo as 2 novas)")
+
+        # Exemplo da estrutura com dados reais
+        st.markdown("### 📋 Exemplo da Nova Estrutura:")
+        colunas_exemplo = ["OrderId", "Nota", "Classificacao_NPS", "Estado_Emocional", "Justificativa_Estado_Emocional", "Comentario"]
+        colunas_disponiveis = [col for col in colunas_exemplo if col in df.columns]
+        
+        # Mostra as primeiras 3 linhas como exemplo
+        df_exemplo = df[colunas_disponiveis].head(3).copy()
+        
+        # Trunca justificativas e comentários para exibição
+        if 'Justificativa_Estado_Emocional' in df_exemplo.columns:
+            df_exemplo['Justificativa_Estado_Emocional'] = df_exemplo['Justificativa_Estado_Emocional'].apply(
+                lambda x: str(x)[:50] + "..." if len(str(x)) > 50 else str(x)
+            )
+        
+        if 'Comentario' in df_exemplo.columns:
+            df_exemplo['Comentario'] = df_exemplo['Comentario'].apply(
+                lambda x: str(x)[:40] + "..." if len(str(x)) > 40 else str(x)
+            )
+        
+        # Formata outras colunas
+        for col in df_exemplo.columns:
+            if col not in ['Estado_Emocional', 'Justificativa_Estado_Emocional']:
+                df_exemplo[col] = df_exemplo[col].astype(str)
+        
+        st.dataframe(df_exemplo, use_container_width=True, hide_index=True)
+
+        # === DASHBOARD TERMÔMETRO EMOCIONAL ===
+        if len(df) > 0:
+            df_com_termometro = gerar_dashboard_termometro(df)
+
+        # Filtros
+        st.markdown("---")
+        st.markdown("### 🔍 Filtros e Visualização")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            tipos_questao = ["Todos"] + sorted(df["Tipo_Questao"].dropna().unique().tolist())
+            tipo_questao = st.selectbox("Filtrar por tipo de questão:", tipos_questao)
+        
+        with col2:
+            nps_filter = st.selectbox("Filtrar por classificação NPS:", ["Todos", "Promotor", "Neutro", "Detrator"])
+
+        # Aplicação dos filtros
+        df_filtrado = df.copy()
+        if tipo_questao != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Tipo_Questao"] == tipo_questao]
+        if nps_filter != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Classificacao_NPS"] == nps_filter]
+
+        # Atualiza DataFrame filtrado com colunas emocionais se não existirem
+        if 'Estado_Emocional' not in df_filtrado.columns or 'Justificativa_Estado_Emocional' not in df_filtrado.columns:
+            resultado_classificacao_filtrado = df_filtrado.apply(
+                lambda row: classificar_termometro_cliente(row['Nota'], row['Comentario']), 
+                axis=1
+            )
+            
+            df_filtrado['Estado_Emocional'] = [resultado[0] for resultado in resultado_classificacao_filtrado]
+            df_filtrado['Justificativa_Estado_Emocional'] = [resultado[1] for resultado in resultado_classificacao_filtrado]
+
+        st.info(f"📋 Exibindo {len(df_filtrado)} registros após aplicação dos filtros")
+
+        # === BOTÃO DE DOWNLOAD DOS DADOS FILTRADOS ===
+        if len(df_filtrado) != len(df):
+            st.markdown("#### 🔍 Download dos Dados Filtrados")
+            
             # Prepara DataFrame filtrado para download
             df_download_filtrado = df_filtrado.copy()
             
@@ -1144,66 +1208,23 @@ if uploaded_file:
             csv_filtrado = df_download_filtrado.to_csv(index=False, encoding="utf-8-sig")
             csv_data_filtrado = csv_filtrado.encode("utf-8-sig")
             
-            st.download_button(
-                label="🔍 Baixar Dados Filtrados com Estado Emocional + Justificativa", 
-                data=csv_data_filtrado,
-                file_name=f"nps_com_estado_emocional_filtrado_{len(df_download_filtrado)}_registros.csv",
-                mime="text/csv",
-                help=f"Baixa apenas os {len(df_download_filtrado)} registros filtrados com Estado_Emocional e Justificativa_Estado_Emocional",
-                use_container_width=True
-            )
-
-        # Mostra exemplo da nova estrutura
-        with st.expander("👁️ Prévia do Arquivo com Estado Emocional + Justificativa"):
-            st.markdown("**Estrutura do arquivo que será baixado:**")
-            colunas_exemplo = ["OrderId", "Nota", "Classificacao_NPS", "Estado_Emocional", "Justificativa_Estado_Emocional", "Comentario"]
-            colunas_disponiveis = [col for col in colunas_exemplo if col in df_filtrado.columns]
+            col1_filtrado, col2_filtrado = st.columns([1, 1])
             
-            # Mostra as primeiras 5 linhas como exemplo
-            df_exemplo = df_filtrado[colunas_disponiveis].head(5).copy()
-            
-            # Formata para exibição (trunca justificativas muito longas)
-            if 'Justificativa_Estado_Emocional' in df_exemplo.columns:
-                df_exemplo['Justificativa_Estado_Emocional'] = df_exemplo['Justificativa_Estado_Emocional'].apply(
-                    lambda x: str(x)[:80] + "..." if len(str(x)) > 80 else str(x)
+            with col1_filtrado:
+                st.download_button(
+                    label="🔍 BAIXAR DADOS FILTRADOS\n🌡️ Com Estado Emocional + Justificativas", 
+                    data=csv_data_filtrado,
+                    file_name=f"nps_filtrado_com_analise_emocional_{len(df_download_filtrado)}_registros.csv",
+                    mime="text/csv",
+                    help=f"Baixa apenas os {len(df_download_filtrado)} registros filtrados + Estado_Emocional + Justificativa_Estado_Emocional",
+                    use_container_width=True,
+                    type="secondary"
                 )
             
-            # Formata outras colunas
-            for col in df_exemplo.columns:
-                if col not in ['Estado_Emocional', 'Justificativa_Estado_Emocional']:
-                    df_exemplo[col] = df_exemplo[col].astype(str)
-            
-            st.dataframe(df_exemplo, use_container_width=True, hide_index=True)
-            
-            # Estatísticas do estado emocional
-            st.markdown("**Distribuição dos Estados Emocionais:**")
-            distribuicao_emocional = df_filtrado['Estado_Emocional'].value_counts()
-            
-            col1_stats, col2_stats = st.columns(2)
-            
-            with col1_stats:
-                for estado, quantidade in distribuicao_emocional.items():
-                    percentual = (quantidade / len(df_filtrado)) * 100
-                    st.write(f"**{estado}:** {quantidade} ({percentual:.1f}%)")
-            
-            with col2_stats:
-                st.write(f"**Total de registros:** {len(df_filtrado):,}")
-                st.write(f"**Colunas no arquivo:** {len(df_filtrado.columns)}")
-                st.write(f"**Novas colunas adicionadas:**")
-                st.write("• Estado_Emocional")
-                st.write("• Justificativa_Estado_Emocional")
-            
-            # Exemplos de justificativas
-            st.markdown("**📋 Exemplos de Justificativas:**")
-            
-            exemplos_justificativas = df_filtrado[['Estado_Emocional', 'Justificativa_Estado_Emocional']].drop_duplicates().head(6)
-            
-            for _, row in exemplos_justificativas.iterrows():
-                estado = row['Estado_Emocional']
-                justificativa = row['Justificativa_Estado_Emocional']
-                st.write(f"**{estado}:** {justificativa}")
+            with col2_filtrado:
+                st.info(f"📊 **{len(df_download_filtrado):,} registros** nos dados filtrados")
 
-        # Exibição dos dados filtrados - convertendo para string para evitar erros do PyArrow
+        # Exibição dos dados filtrados
         st.markdown("### 📊 Visualização dos Dados")
         try:
             df_display = df_filtrado[["OrderId", "Nota", "Classificacao_NPS", "Estado_Emocional", "Justificativa_Estado_Emocional", "Tipo_Questao", "Comentario"]].copy()
