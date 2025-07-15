@@ -1243,7 +1243,7 @@ if uploaded_file:
         except Exception as e:
             st.error(f"Erro ao exibir dados: {str(e)}")
             # Fallback: exibe sem formatação especial
-            st.write(df_filtrado[["OrderId", "Nota", "Classificacao_NPS", "Estado_Emocional", "Tipo_Questao", "Comentario"]].head(100))olunas para string para evitar problemas de tipo
+            st.write(df_filtrado[["OrderId", "Nota", "Classificacao_NPS", "Estado_Emocional", "Tipo_Questao", "Comentario"]].head(100))
             for col in df_display.columns:
                 if col != 'Estado_Emocional':  # Mantém o formato original da coluna emocional
                     df_display[col] = df_display[col].astype(str)
