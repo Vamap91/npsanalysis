@@ -53,6 +53,7 @@ def classificar_nps(nota):
 def classificar_termometro_cliente(nota, comentario):
     """
     Classifica o estado emocional do cliente baseado na nota e comentário
+    Retorna uma tupla: (estado_emocional, justificativa)
     """
     try:
         nota = float(nota)
@@ -78,24 +79,55 @@ def classificar_termometro_cliente(nota, comentario):
         ]
         
         # Verifica palavras no comentário
-        tem_palavras_extremas = any(palavra in comentario_lower for palavra in palavras_extremamente_insatisfeito)
-        tem_palavras_atrito = any(palavra in comentario_lower for palavra in palavras_atritado)
-        tem_palavras_feliz = any(palavra in comentario_lower for palavra in palavras_feliz)
+        palavras_extremas_encontradas = [p for p in palavras_extremamente_insatisfeito if p in comentario_lower]
+        palavras_atrito_encontradas = [p for p in palavras_atritado if p in comentario_lower]
+        palavras_feliz_encontradas = [p for p in palavras_feliz if p in comentario_lower]
         
-        # Lógica de classificação
-        if nota <= 2 or tem_palavras_extremas:
-            return "😡 Extremamente Insatisfeito"
-        elif nota <= 6 or (tem_palavras_atrito and not tem_palavras_feliz):
-            return "😤 Atritado"
-        elif nota >= 9 or tem_palavras_feliz:
-            return "😊 Feliz"
+        # Lógica de classificação com justificativa
+        if nota <= 2 and palavras_extremas_encontradas:
+            justificativa = f"Nota crítica ({nota}) + palavras extremas: {', '.join(palavras_extremas_encontradas[:3])}"
+            return "😡 Extremamente Insatisfeito", justificativa
+        elif nota <= 2:
+            justificativa = f"Nota extremamente baixa ({nota})"
+            return "😡 Extremamente Insatisfeito", justificativa
+        elif palavras_extremas_encontradas:
+            justificativa = f"Linguagem extrema: {', '.join(palavras_extremas_encontradas[:3])}"
+            return "😡 Extremamente Insatisfeito", justificativa
+        elif nota <= 6 and palavras_atrito_encontradas:
+            justificativa = f"Nota baixa ({nota}) + problemas: {', '.join(palavras_atrito_encontradas[:3])}"
+            return "😤 Atritado", justificativa
+        elif nota <= 6:
+            justificativa = f"Nota abaixo da média ({nota})"
+            return "😤 Atritado", justificativa
+        elif palavras_atrito_encontradas and not palavras_feliz_encontradas:
+            justificativa = f"Problemas reportados: {', '.join(palavras_atrito_encontradas[:3])}"
+            return "😤 Atritado", justificativa
+        elif nota >= 9 and palavras_feliz_encontradas:
+            justificativa = f"Nota excelente ({nota}) + feedback positivo: {', '.join(palavras_feliz_encontradas[:3])}"
+            return "😊 Feliz", justificativa
+        elif nota >= 9:
+            justificativa = f"Nota excelente ({nota}) - promotor ativo"
+            return "😊 Feliz", justificativa
+        elif palavras_feliz_encontradas:
+            justificativa = f"Feedback positivo: {', '.join(palavras_feliz_encontradas[:3])}"
+            return "😊 Feliz", justificativa
         elif nota >= 7:
-            return "😐 Neutro"
+            justificativa = f"Nota satisfatória ({nota}) - sem problemas graves"
+            return "😐 Neutro", justificativa
         else:
-            return "😤 Atritado"
+            justificativa = f"Nota moderada ({nota}) - classificação padrão"
+            return "😤 Atritado", justificativa
             
     except Exception as e:
-        return "❓ Não classificado"
+        return "❓ Não classificado", f"Erro na análise: {str(e)}"
+
+
+def classificar_termometro_cliente_simples(nota, comentario):
+    """
+    Versão simplificada que retorna apenas o estado emocional (para compatibilidade)
+    """
+    estado, _ = classificar_termometro_cliente(nota, comentario)
+    return estado
 
 
 def encontrar_pior_comentario_com_os(df):
@@ -115,7 +147,7 @@ def encontrar_pior_comentario_com_os(df):
         pior_nota = pior_linha['Nota']
         pior_comentario = pior_linha['Comentario']
         order_id = pior_linha.get('OrderId', 'N/A')
-        classificacao_emocional = classificar_termometro_cliente(pior_nota, pior_comentario)
+        classificacao_emocional = classificar_termometro_cliente_simples(pior_nota, pior_comentario)
         
         return pior_nota, pior_comentario, order_id, classificacao_emocional
         
@@ -134,7 +166,7 @@ def criar_termometro_visual(df_filtrado):
     # Aplica classificação emocional para todos os registros
     df_temp = df_filtrado.copy()
     df_temp['Termometro_Cliente'] = df_temp.apply(
-        lambda row: classificar_termometro_cliente(row['Nota'], row['Comentario']), 
+        lambda row: classificar_termometro_cliente_simples(row['Nota'], row['Comentario']), 
         axis=1
     )
     
@@ -431,7 +463,7 @@ def gerar_dashboard_termometro(df_filtrado):
     # Aplica classificação emocional
     df_temp = df_filtrado.copy()
     df_temp['Termometro_Cliente'] = df_temp.apply(
-        lambda row: classificar_termometro_cliente(row['Nota'], row['Comentario']), 
+        lambda row: classificar_termometro_cliente_simples(row['Nota'], row['Comentario']), 
         axis=1
     )
     
@@ -794,7 +826,7 @@ def gerar_analise_detratores(df_filtrado, df_final):
                         st.write(f"**Seguradora:** {row['Companhia']}")
                     
                     # Mostra o termômetro emocional deste comentário
-                    estado_emocional = classificar_termometro_cliente(row['Nota'], row['Comentario'])
+                    estado_emocional = classificar_termometro_cliente_simples(row['Nota'], row['Comentario'])
                     st.write(f"**Estado Emocional:** {estado_emocional}")
         
         # Comentários do maior grupo de detratores (se existir análise de clusters)
@@ -1031,19 +1063,175 @@ if uploaded_file:
 
         st.info(f"📋 Exibindo {len(df_filtrado)} registros após aplicação dos filtros")
 
-        # Exibição dos dados filtrados - convertendo para string para evitar erros do PyArrow
-        try:
-            df_display = df_filtrado[["OrderId", "Nota", "Classificacao_NPS", "Tipo_Questao", "Comentario", "Motivo_Selecionado"]].copy()
+        # === ADIÇÃO DO ESTADO EMOCIONAL E JUSTIFICATIVA AO DATASET ORIGINAL ===
+        # Adiciona as colunas Estado_Emocional e Justificativa_Estado_Emocional ao DataFrame completo
+        if 'Estado_Emocional' not in df.columns or 'Justificativa_Estado_Emocional' not in df.columns:
+            # Aplica classificação com justificativa
+            resultado_classificacao = df.apply(
+                lambda row: classificar_termometro_cliente(row['Nota'], row['Comentario']), 
+                axis=1
+            )
             
-            # Converte todas as colunas para string para evitar problemas de tipo
+            # Separa estado emocional e justificativa
+            df['Estado_Emocional'] = [resultado[0] for resultado in resultado_classificacao]
+            df['Justificativa_Estado_Emocional'] = [resultado[1] for resultado in resultado_classificacao]
+        
+        # Atualiza também o DataFrame filtrado
+        if 'Estado_Emocional' not in df_filtrado.columns or 'Justificativa_Estado_Emocional' not in df_filtrado.columns:
+            resultado_classificacao_filtrado = df_filtrado.apply(
+                lambda row: classificar_termometro_cliente(row['Nota'], row['Comentario']), 
+                axis=1
+            )
+            
+            df_filtrado['Estado_Emocional'] = [resultado[0] for resultado in resultado_classificacao_filtrado]
+            df_filtrado['Justificativa_Estado_Emocional'] = [resultado[1] for resultado in resultado_classificacao_filtrado]
+
+        # === BOTÃO DE DOWNLOAD DO ARQUIVO ORIGINAL COM ESTADO EMOCIONAL E JUSTIFICATIVA ===
+        st.markdown("### 📥 Download do Arquivo com Estado Emocional")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Prepara DataFrame para download (todos os dados)
+            df_download_completo = df.copy()
+            
+            # Reorganiza colunas para colocar Estado_Emocional e Justificativa após Classificacao_NPS
+            cols = df_download_completo.columns.tolist()
+            if 'Estado_Emocional' in cols and 'Justificativa_Estado_Emocional' in cols and 'Classificacao_NPS' in cols:
+                # Remove as novas colunas da posição atual
+                cols.remove('Estado_Emocional')
+                cols.remove('Justificativa_Estado_Emocional')
+                
+                # Insere após Classificacao_NPS
+                idx_classificacao = cols.index('Classificacao_NPS')
+                cols.insert(idx_classificacao + 1, 'Estado_Emocional')
+                cols.insert(idx_classificacao + 2, 'Justificativa_Estado_Emocional')
+                
+                df_download_completo = df_download_completo[cols]
+            
+            # Converte para CSV
+            csv_completo = df_download_completo.to_csv(index=False, encoding="utf-8-sig")
+            csv_data_completo = csv_completo.encode("utf-8-sig")
+            
+            st.download_button(
+                label="📊 Baixar Arquivo Completo com Estado Emocional + Justificativa",
+                data=csv_data_completo,
+                file_name=f"nps_com_estado_emocional_completo_{len(df_download_completo)}_registros.csv",
+                mime="text/csv",
+                help=f"Baixa todos os {len(df_download_completo)} registros com Estado_Emocional e Justificativa_Estado_Emocional",
+                use_container_width=True
+            )
+        
+        with col2:
+            # Prepara DataFrame filtrado para download
+            df_download_filtrado = df_filtrado.copy()
+            
+            # Reorganiza colunas para colocar Estado_Emocional e Justificativa após Classificacao_NPS
+            cols_filtrado = df_download_filtrado.columns.tolist()
+            if 'Estado_Emocional' in cols_filtrado and 'Justificativa_Estado_Emocional' in cols_filtrado and 'Classificacao_NPS' in cols_filtrado:
+                # Remove as novas colunas da posição atual
+                cols_filtrado.remove('Estado_Emocional')
+                cols_filtrado.remove('Justificativa_Estado_Emocional')
+                
+                # Insere após Classificacao_NPS
+                idx_classificacao_filtrado = cols_filtrado.index('Classificacao_NPS')
+                cols_filtrado.insert(idx_classificacao_filtrado + 1, 'Estado_Emocional')
+                cols_filtrado.insert(idx_classificacao_filtrado + 2, 'Justificativa_Estado_Emocional')
+                
+                df_download_filtrado = df_download_filtrado[cols_filtrado]
+            
+            # Converte para CSV
+            csv_filtrado = df_download_filtrado.to_csv(index=False, encoding="utf-8-sig")
+            csv_data_filtrado = csv_filtrado.encode("utf-8-sig")
+            
+            st.download_button(
+                label="🔍 Baixar Dados Filtrados com Estado Emocional + Justificativa", 
+                data=csv_data_filtrado,
+                file_name=f"nps_com_estado_emocional_filtrado_{len(df_download_filtrado)}_registros.csv",
+                mime="text/csv",
+                help=f"Baixa apenas os {len(df_download_filtrado)} registros filtrados com Estado_Emocional e Justificativa_Estado_Emocional",
+                use_container_width=True
+            )
+
+        # Mostra exemplo da nova estrutura
+        with st.expander("👁️ Prévia do Arquivo com Estado Emocional + Justificativa"):
+            st.markdown("**Estrutura do arquivo que será baixado:**")
+            colunas_exemplo = ["OrderId", "Nota", "Classificacao_NPS", "Estado_Emocional", "Justificativa_Estado_Emocional", "Comentario"]
+            colunas_disponiveis = [col for col in colunas_exemplo if col in df_filtrado.columns]
+            
+            # Mostra as primeiras 5 linhas como exemplo
+            df_exemplo = df_filtrado[colunas_disponiveis].head(5).copy()
+            
+            # Formata para exibição (trunca justificativas muito longas)
+            if 'Justificativa_Estado_Emocional' in df_exemplo.columns:
+                df_exemplo['Justificativa_Estado_Emocional'] = df_exemplo['Justificativa_Estado_Emocional'].apply(
+                    lambda x: str(x)[:80] + "..." if len(str(x)) > 80 else str(x)
+                )
+            
+            # Formata outras colunas
+            for col in df_exemplo.columns:
+                if col not in ['Estado_Emocional', 'Justificativa_Estado_Emocional']:
+                    df_exemplo[col] = df_exemplo[col].astype(str)
+            
+            st.dataframe(df_exemplo, use_container_width=True, hide_index=True)
+            
+            # Estatísticas do estado emocional
+            st.markdown("**Distribuição dos Estados Emocionais:**")
+            distribuicao_emocional = df_filtrado['Estado_Emocional'].value_counts()
+            
+            col1_stats, col2_stats = st.columns(2)
+            
+            with col1_stats:
+                for estado, quantidade in distribuicao_emocional.items():
+                    percentual = (quantidade / len(df_filtrado)) * 100
+                    st.write(f"**{estado}:** {quantidade} ({percentual:.1f}%)")
+            
+            with col2_stats:
+                st.write(f"**Total de registros:** {len(df_filtrado):,}")
+                st.write(f"**Colunas no arquivo:** {len(df_filtrado.columns)}")
+                st.write(f"**Novas colunas adicionadas:**")
+                st.write("• Estado_Emocional")
+                st.write("• Justificativa_Estado_Emocional")
+            
+            # Exemplos de justificativas
+            st.markdown("**📋 Exemplos de Justificativas:**")
+            
+            exemplos_justificativas = df_filtrado[['Estado_Emocional', 'Justificativa_Estado_Emocional']].drop_duplicates().head(6)
+            
+            for _, row in exemplos_justificativas.iterrows():
+                estado = row['Estado_Emocional']
+                justificativa = row['Justificativa_Estado_Emocional']
+                st.write(f"**{estado}:** {justificativa}")
+
+        # Exibição dos dados filtrados - convertendo para string para evitar erros do PyArrow
+        st.markdown("### 📊 Visualização dos Dados")
+        try:
+            df_display = df_filtrado[["OrderId", "Nota", "Classificacao_NPS", "Estado_Emocional", "Justificativa_Estado_Emocional", "Tipo_Questao", "Comentario"]].copy()
+            
+            # Trunca justificativas para exibição
+            df_display['Justificativa_Estado_Emocional'] = df_display['Justificativa_Estado_Emocional'].apply(
+                lambda x: str(x)[:60] + "..." if len(str(x)) > 60 else str(x)
+            )
+            
+            # Converte outras colunas para string para evitar problemas de tipo
             for col in df_display.columns:
-                df_display[col] = df_display[col].astype(str)
+                if col not in ['Estado_Emocional', 'Justificativa_Estado_Emocional']:
+                    df_display[col] = df_display[col].astype(str)
             
             st.dataframe(df_display, use_container_width=True, height=400)
         except Exception as e:
             st.error(f"Erro ao exibir dados: {str(e)}")
             # Fallback: exibe sem formatação especial
-            st.write(df_filtrado[["OrderId", "Nota", "Classificacao_NPS", "Tipo_Questao", "Comentario", "Motivo_Selecionado"]].head(100))
+            st.write(df_filtrado[["OrderId", "Nota", "Classificacao_NPS", "Estado_Emocional", "Tipo_Questao", "Comentario"]].head(100))olunas para string para evitar problemas de tipo
+            for col in df_display.columns:
+                if col != 'Estado_Emocional':  # Mantém o formato original da coluna emocional
+                    df_display[col] = df_display[col].astype(str)
+            
+            st.dataframe(df_display, use_container_width=True, height=400)
+        except Exception as e:
+            st.error(f"Erro ao exibir dados: {str(e)}")
+            # Fallback: exibe sem formatação especial
+            st.write(df_filtrado[["OrderId", "Nota", "Classificacao_NPS", "Estado_Emocional", "Tipo_Questao", "Comentario", "Motivo_Selecionado"]].head(100))
 
         # === TERMÔMETRO PARA DADOS FILTRADOS ===
         if len(df_filtrado) > 0:
@@ -1134,7 +1322,7 @@ else:
     3. **Identifique a OS mais crítica** para ação imediata
     4. **Aplique filtros** por tipo de questão e classificação NPS
     5. **Execute a análise** com IA para gerar sugestões de motivos
-    6. **Baixe os resultados** em formato CSV
+    6. **Baixe os resultados** em formato CSV com justificativas
     
     #### 📊 Estrutura Esperada do Arquivo:
     - **Coluna 1**: OrderId (Ordem de Serviço)
@@ -1148,8 +1336,16 @@ else:
     
     #### 🌡️ Novos Recursos:
     - **Termômetro Emocional**: Classifica clientes em Feliz, Neutro, Atritado ou Extremamente Insatisfeito
+    - **Justificativas Automáticas**: Explica o motivo de cada classificação emocional
     - **Identificação de OS Crítica**: Mostra a Ordem de Serviço do pior comentário para ação imediata
     - **Dashboard Visual**: Gráficos interativos para análise rápida
+    - **Download Enriquecido**: Arquivo original + Estado_Emocional + Justificativa_Estado_Emocional
+    
+    #### 📋 Exemplos de Justificativas:
+    - **😡 Extremamente Insatisfeito**: "Nota crítica (1) + palavras extremas: péssimo, inaceitável"
+    - **😤 Atritado**: "Nota baixa (4) + problemas: demora, dificuldade"
+    - **😐 Neutro**: "Nota satisfatória (7) - sem problemas graves"
+    - **😊 Feliz**: "Nota excelente (10) + feedback positivo: excelente, rápido"
     
     ### 📋 Requirements.txt
     ```txt
